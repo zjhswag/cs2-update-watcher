@@ -1,5 +1,6 @@
 .env
 watcher_state.json
+watcher_state.json.tmp
 __pycache__/
 *.pyc
 .venv/

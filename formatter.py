@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 from typing import TYPE_CHECKING
 
@@ -16,9 +17,22 @@ logger = logging.getLogger(__name__)
 CST = timezone(timedelta(hours=8))
 
 
-def format_news_text(news: list[SteamNewsItem]) -> str:
+def _translate_news(news: list[SteamNewsItem]) -> dict[str, str]:
+    """统一翻译所有新闻内容，返回 {gid: 翻译文本} 映射。每条只翻译一次。"""
+    translations = {}
+    for n in news:
+        clean_text = _strip_steam_markup(n.contents)
+        translated = translate_to_chinese(clean_text)
+        translations[n.gid] = _strip_steam_markup(translated) if translated else ""
+    return translations
+
+
+def format_news_text(news: list[SteamNewsItem], translations: dict[str, str] | None = None) -> str:
+    if translations is None:
+        translations = _translate_news(news)
+
     now = datetime.now(tz=CST).strftime("%Y-%m-%d %H:%M")
-    lines = [f"CSGO（{now}）更新内容：", "=" * 50, ""]
+    lines = [f"CS2（{now}）更新内容：", "=" * 50, ""]
     for n in news:
         ts = datetime.fromtimestamp(n.date, tz=CST).strftime("%Y-%m-%d %H:%M")
         clean_text = _strip_steam_markup(n.contents)
@@ -29,11 +43,11 @@ def format_news_text(news: list[SteamNewsItem]) -> str:
         lines.append(clean_text)
         lines.append("")
 
-        translated = translate_to_chinese(clean_text)
+        translated = translations.get(n.gid, "")
         if translated:
             lines.append("— 翻译如下 —")
             lines.append("")
-            lines.append(_strip_steam_markup(translated))
+            lines.append(translated)
             lines.append("")
 
         lines.append("-" * 50)
@@ -42,22 +56,23 @@ def format_news_text(news: list[SteamNewsItem]) -> str:
     return "\n".join(lines)
 
 
-def format_news_html(news: list[SteamNewsItem]) -> str:
+def format_news_html(news: list[SteamNewsItem], translations: dict[str, str] | None = None) -> str:
+    if translations is None:
+        translations = _translate_news(news)
+
     now = datetime.now(tz=CST).strftime("%Y-%m-%d %H:%M")
     items = []
     for n in news:
         ts = datetime.fromtimestamp(n.date, tz=CST).strftime("%Y-%m-%d %H:%M")
         content_html = _steam_markup_to_html(_esc(n.contents))
-        clean_text = _strip_steam_markup(n.contents)
 
-        translated = translate_to_chinese(clean_text)
+        translated = translations.get(n.gid, "")
         translated_html = ""
         if translated:
-            clean_translated = _strip_steam_markup(translated)
             translated_html = (
                 '<hr style="border:none;border-top:1px dashed #ccc;margin:16px 0">'
                 '<p style="color:#e67e22;font-weight:bold;margin:8px 0">翻译如下</p>'
-                f'<div style="line-height:1.6">{_esc(clean_translated).replace(chr(10), "<br>")}</div>'
+                f'<div style="line-height:1.6">{_esc(translated).replace(chr(10), "<br>")}</div>'
             )
 
         items.append(
@@ -69,7 +84,7 @@ def format_news_html(news: list[SteamNewsItem]) -> str:
             f'</div>'
         )
     return (
-        f'<h2>CSGO（{now}）更新内容：</h2>'
+        f'<h2>CS2（{now}）更新内容：</h2>'
         + "".join(items)
         + '<p style="margin-top:24px;color:#888;text-align:right;font-size:14px">By 周佳和</p>'
     )
@@ -90,8 +105,6 @@ def _esc(s: str) -> str:
 
 def _steam_markup_to_html(text: str) -> str:
     """将 Steam BBCode 风格标记转为 HTML。"""
-    import re
-
     text = re.sub(r'\[h1\](.*?)\[/h1\]', r'<h2>\1</h2>', text, flags=re.DOTALL)
     text = re.sub(r'\[h2\](.*?)\[/h2\]', r'<h3>\1</h3>', text, flags=re.DOTALL)
     text = re.sub(r'\[h3\](.*?)\[/h3\]', r'<h4>\1</h4>', text, flags=re.DOTALL)
@@ -113,7 +126,6 @@ def _steam_markup_to_html(text: str) -> str:
 
 def _strip_steam_markup(text: str) -> str:
     """移除所有 Steam BBCode 标记，只保留纯文本。"""
-    import re
     text = re.sub(r'\[url=(.*?)\](.*?)\[/url\]', r'\2', text, flags=re.DOTALL)
     text = re.sub(r'\[/?[^\]]*\]', '', text)
     text = re.sub(r'\n{3,}', '\n\n', text)

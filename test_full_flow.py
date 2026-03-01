@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("test-flow")
 
-from formatter import format_news_html, format_news_text, format_phone_summary
+from formatter import _translate_news, format_news_html, format_news_text, format_phone_summary
 from notifier import notify_all
 from steam_news_watcher import fetch_latest_news
 
@@ -38,9 +38,10 @@ def main():
     new_news = [latest]
 
     logger.info("Step 3: 格式化内容（含翻译）...")
+    translations = _translate_news(new_news)
     subject = f"[CS2 更新] {len(new_news)} 条官方公告"
-    body_text = format_news_text(new_news)
-    body_html = format_news_html(new_news)
+    body_text = format_news_text(new_news, translations)
+    body_html = format_news_html(new_news, translations)
     phone_msg = format_phone_summary(news=new_news)
 
     logger.info("Step 4: 发送所有通知...")

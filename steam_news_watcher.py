@@ -1,8 +1,4 @@
-"""监听 Steam 官方 ISteamNews API 获取 CS2 更新公告。
-
-这是对 GitHub commit 监控的补充：commit 反映代码级变更，
-Steam News 则包含 Valve 发布的正式更新日志和补丁说明。
-"""
+"""监听 Steam 官方 ISteamNews API 获取 CS2 更新公告。"""
 
 from __future__ import annotations
 
@@ -44,11 +40,11 @@ def fetch_latest_news(count: int = 5) -> list[SteamNewsItem]:
     try:
         resp = requests.get(STEAM_NEWS_URL, params=params, timeout=30)
         resp.raise_for_status()
-    except requests.RequestException:
+        data = resp.json()
+    except (requests.RequestException, ValueError):
         logger.exception("Steam News API 请求失败")
         return []
 
-    data = resp.json()
     news_items = data.get("appnews", {}).get("newsitems", [])
 
     return [

@@ -17,7 +17,7 @@ logging.basicConfig(
 logger = logging.getLogger("test-send")
 
 from config import Config
-from formatter import format_news_html, format_news_text
+from formatter import _translate_news, format_news_html, format_news_text
 from notifier import send_email
 from steam_news_watcher import fetch_latest_news
 
@@ -33,9 +33,10 @@ def main():
     item = news[0]
     logger.info("获取到新闻: %s", item.title)
 
+    translations = _translate_news(news)
     subject = f"[CS2 更新测试] {item.title}"
-    body_text = format_news_text(news)
-    body_html = format_news_html(news)
+    body_text = format_news_text(news, translations)
+    body_html = format_news_html(news, translations)
 
     logger.info("SMTP: %s:%d, 发件人: %s, 收件人: %s",
                 Config.SMTP_HOST, Config.SMTP_PORT, Config.SMTP_USER, Config.NOTIFY_EMAIL)

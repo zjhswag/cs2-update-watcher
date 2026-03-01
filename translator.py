@@ -53,7 +53,14 @@ def translate_to_chinese(text: str) -> str:
         )
         resp.raise_for_status()
         result = resp.json()
-        translated = result["choices"][0]["message"]["content"]
+        choices = result.get("choices") or []
+        if not choices:
+            logger.warning("DeepSeek 返回空 choices")
+            return ""
+        translated = (choices[0].get("message") or {}).get("content", "")
+        if not translated:
+            logger.warning("DeepSeek 返回空翻译内容")
+            return ""
         logger.info("DeepSeek 翻译完成，原文 %d 字 → 译文 %d 字", len(text), len(translated))
         return translated
     except Exception:

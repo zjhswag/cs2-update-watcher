@@ -10,14 +10,16 @@
   - 阿里云语音电话（可选）
 """
 
+from __future__ import annotations
+
 import logging
 import signal
-import sys
 import time
 from datetime import datetime, timedelta, timezone
 
 from config import Config
 from formatter import (
+    _translate_news,
     format_news_html,
     format_news_text,
     format_phone_summary,
@@ -62,14 +64,15 @@ def poll_once(current_state: dict) -> dict:
     if not new_news:
         return current_state
 
+    translations = _translate_news(new_news)
+
     subject = f"[CS2 更新] {len(new_news)} 条官方公告"
-    body_text = format_news_text(new_news)
-    body_html = format_news_html(new_news)
+    body_text = format_news_text(new_news, translations)
+    body_html = format_news_html(new_news, translations)
     phone_msg = format_phone_summary(news=new_news)
 
     notify_all(subject, body_text, body_html, phone_msg)
     current_state["last_news_gid"] = new_gid
-    save_state(current_state)
 
     return current_state
 

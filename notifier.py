@@ -7,7 +7,6 @@ import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from urllib.parse import quote
 
 import requests
 
@@ -73,18 +72,21 @@ def send_bark(title: str, body: str) -> bool:
         logger.warning("BARK_URL 未配置，跳过 Bark 推送")
         return False
 
-    url = f"{Config.BARK_URL.rstrip('/')}/{quote(title)}/{quote(body)}"
-    params = {
+    url = Config.BARK_URL.rstrip("/")
+
+    payload = {
+        "title": title,
+        "body": body[:4000],
         "sound": Config.BARK_SOUND,
         "group": "CS2",
         "isArchive": "1",
         "level": "critical",
         "call": "1",
-        "volume":"5"
+        "volume": "5",
     }
 
     try:
-        resp = requests.get(url, params=params, timeout=15)
+        resp = requests.post(url, json=payload, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         if data.get("code") == 200:
