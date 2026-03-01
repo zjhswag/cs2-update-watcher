@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import signal
 import time
 from datetime import datetime, timedelta, timezone
@@ -117,13 +118,23 @@ def main():
 
     current_state = load_state()
     last_heartbeat = current_state.get("last_heartbeat_date")
+    poll_count = 0
 
     while _running:
+        poll_count += 1
+
+        if poll_count % 100 == 0:
+            os.system("cls" if os.name == "nt" else "clear")
+            logger.info("控制台已清屏（第 %d 次轮询）", poll_count)
+
         try:
             current_state = poll_once(current_state)
             save_state(current_state)
         except Exception:
             logger.exception("检查周期异常，将在下次重试")
+
+        gid = current_state.get("last_news_gid", "无")
+        logger.info("第 %d 次轮询完成 | 最新公告 GID: %s", poll_count, gid)
 
         try:
             last_heartbeat = _check_heartbeat(last_heartbeat)
@@ -137,7 +148,7 @@ def main():
                 break
             time.sleep(1)
 
-    logger.info("CS2 Update Watcher 已停止")
+    logger.info("CS2 Update Watcher 已停止（共轮询 %d 次）", poll_count)
 
 
 if __name__ == "__main__":
