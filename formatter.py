@@ -90,6 +90,51 @@ def format_news_html(news: list[SteamNewsItem], translations: dict[str, str] | N
     )
 
 
+def format_quick_alert_text(news: list[SteamNewsItem]) -> str:
+    """生成快速提醒的纯文本（无翻译），用于第一时间通知。"""
+    now = datetime.now(tz=CST).strftime("%Y-%m-%d %H:%M")
+    lines = [
+        f"[CS2 更新] 发现 {len(news)} 条新公告",
+        "=" * 50,
+        "",
+        f"检测时间: {now}",
+        "",
+        "公告列表：",
+        "",
+    ]
+    for n in news:
+        ts = datetime.fromtimestamp(n.date, tz=CST).strftime("%Y-%m-%d %H:%M")
+        lines.append(f"• {n.title}")
+        lines.append(f"  时间: {ts}")
+        lines.append(f"  链接: {n.url}")
+        lines.append("")
+    lines.append("翻译版邮件正在生成，稍后发送。")
+    lines.append("")
+    lines.append("By 周佳和")
+    return "\n".join(lines)
+
+
+def format_quick_alert_html(news: list[SteamNewsItem]) -> str:
+    """生成快速提醒的 HTML（无翻译），用于第一时间通知。"""
+    now = datetime.now(tz=CST).strftime("%Y-%m-%d %H:%M")
+    items = []
+    for n in news:
+        ts = datetime.fromtimestamp(n.date, tz=CST).strftime("%Y-%m-%d %H:%M")
+        items.append(
+            f'<div style="margin-bottom:12px;padding:12px;border:1px solid #ddd;border-radius:6px">'
+            f'<h3 style="margin:0 0 4px"><a href="{n.url}">{_esc(n.title)}</a></h3>'
+            f'<small style="color:#666">{ts}</small>'
+            f'</div>'
+        )
+    return (
+        f'<h2>CS2 更新提醒 — 发现 {len(news)} 条新公告</h2>'
+        f'<p style="color:#666">检测时间: {now}</p>'
+        + "".join(items)
+        + '<p style="margin-top:16px;color:#e67e22">翻译版邮件正在生成，稍后发送。</p>'
+        + '<p style="margin-top:24px;color:#888;text-align:right;font-size:14px">By 周佳和</p>'
+    )
+
+
 def format_phone_summary(news: list[SteamNewsItem] | None = None) -> str:
     """生成简短的电话语音摘要（TTS 用）。"""
     parts = ["CS2 更新提醒。"]

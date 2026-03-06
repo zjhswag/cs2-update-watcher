@@ -15,8 +15,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("test-flow")
 
-from formatter import _translate_news, format_news_html, format_news_text, format_phone_summary
-from notifier import notify_all
+from formatter import (
+    _translate_news,
+    format_news_html,
+    format_news_text,
+    format_phone_summary,
+    format_quick_alert_html,
+    format_quick_alert_text,
+)
+from notifier import notify_all, send_email
 from steam_news_watcher import fetch_latest_news
 
 
@@ -37,20 +44,27 @@ def main():
     logger.info("Step 2: 假装上次记录的是 GID=%s，发现 1 条新公告", previous.gid)
     new_news = [latest]
 
-    logger.info("Step 3: 格式化内容（含翻译）...")
-    translations = _translate_news(new_news)
-    subject = f"[CS2 更新] {len(new_news)} 条官方公告"
-    body_text = format_news_text(new_news, translations)
-    body_html = format_news_html(new_news, translations)
+    # Step 3: 先发快速提醒（无翻译）
+    logger.info("Step 3: 发送快速提醒（无翻译）...")
+    subject_quick = f"[CS2 更新] 发现 {len(new_news)} 条新公告（快速提醒）"
+    body_quick_text = format_quick_alert_text(new_news)
+    body_quick_html = format_quick_alert_html(new_news)
     phone_msg = format_phone_summary(news=new_news)
+    results = notify_all(subject_quick, body_quick_text, body_quick_html, phone_msg)
 
-    logger.info("Step 4: 发送所有通知...")
-    results = notify_all(subject, body_text, body_html, phone_msg)
+    # Step 4: 翻译后发送带翻译的完整版邮件
+    logger.info("Step 4: 翻译并发送完整版邮件（含翻译）...")
+    translations = _translate_news(new_news)
+    subject_full = f"[CS2 更新] {len(new_news)} 条官方公告（含翻译）"
+    body_full_text = format_news_text(new_news, translations)
+    body_full_html = format_news_html(new_news, translations)
+    email_ok = send_email(subject_full, body_full_text, body_full_html)
 
     logger.info("=== 测试完成 ===")
     for channel, ok in results.items():
         status = "成功" if ok else "跳过/失败"
         logger.info("  %s: %s", channel, status)
+    logger.info("  邮件(含翻译): %s", "成功" if email_ok else "跳过/失败")
 
 
 if __name__ == "__main__":

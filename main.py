@@ -24,6 +24,8 @@ from formatter import (
     format_news_html,
     format_news_text,
     format_phone_summary,
+    format_quick_alert_html,
+    format_quick_alert_text,
 )
 from notifier import notify_all, send_email
 from state import load_state, save_state
@@ -65,14 +67,20 @@ def poll_once(current_state: dict) -> dict:
     if not new_news:
         return current_state
 
-    translations = _translate_news(new_news)
-
-    subject = f"[CS2 更新] {len(new_news)} 条官方公告"
-    body_text = format_news_text(new_news, translations)
-    body_html = format_news_html(new_news, translations)
+    # 1. 先发快速提醒（无翻译），第一时间通知
+    subject_quick = f"[CS2 更新] 发现 {len(new_news)} 条新公告（快速提醒）"
+    body_quick_text = format_quick_alert_text(new_news)
+    body_quick_html = format_quick_alert_html(new_news)
     phone_msg = format_phone_summary(news=new_news)
+    notify_all(subject_quick, body_quick_text, body_quick_html, phone_msg)
 
-    notify_all(subject, body_text, body_html, phone_msg)
+    # 2. 翻译后发送带翻译的完整版邮件
+    translations = _translate_news(new_news)
+    subject_full = f"[CS2 更新] {len(new_news)} 条官方公告（含翻译）"
+    body_full_text = format_news_text(new_news, translations)
+    body_full_html = format_news_html(new_news, translations)
+    send_email(subject_full, body_full_text, body_full_html)
+
     current_state["last_news_gid"] = new_gid
 
     return current_state
