@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -51,6 +52,18 @@ def _handle_signal(sig, _frame):
 
 signal.signal(signal.SIGINT, _handle_signal)
 signal.signal(signal.SIGTERM, _handle_signal)
+
+
+def _clear_console() -> None:
+    """清屏。仅在交互式终端执行，避免输出重定向时打印乱码。"""
+    if not sys.stdout.isatty():
+        return
+    if os.name == "nt":
+        os.system("cls")
+    else:
+        # ANSI: 2J=清屏, H=光标回左上角
+        sys.stdout.write("\033[2J\033[H")
+        sys.stdout.flush()
 
 
 def poll_once(current_state: dict) -> dict:
@@ -132,7 +145,7 @@ def main():
         poll_count += 1
 
         if poll_count % 100 == 0:
-            os.system("cls" if os.name == "nt" else "clear")
+            _clear_console()
             logger.info("控制台已清屏（第 %d 次轮询）", poll_count)
 
         try:
