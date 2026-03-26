@@ -59,12 +59,14 @@ def send_email(subject: str, body_text: str, body_html: str | None = None) -> bo
 # Bark 推送（iOS）
 # ---------------------------------------------------------------------------
 
-def send_bark(title: str, body: str) -> bool:
+def send_bark(title: str, body: str, *, force: bool = False) -> bool:
     """通过 Bark 推送通知到 iPhone。
 
     Bark 地址格式: https://api.day.app/你的Key
+
+    force=True 时忽略 ENABLE_BARK 开关（仍需要配置 BARK_URL），用于「重大 SteamDB 说明」等强提醒场景。
     """
-    if not Config.ENABLE_BARK:
+    if not force and not Config.ENABLE_BARK:
         logger.debug("Bark 推送已关闭")
         return False
 

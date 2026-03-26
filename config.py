@@ -38,5 +38,12 @@ class Config:
     ENABLE_BARK = os.getenv("ENABLE_BARK", "false").lower() == "true"
     ENABLE_PHONE = os.getenv("ENABLE_PHONE", "false").lower() == "true"
 
+    # --- GitHub（GameTracking commit 监听 + LLM 摘要）---
+    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+    GAMETRACKING_REPO = os.getenv("GAMETRACKING_REPO", "SteamTracking/GameTracking-CS2")
+    GAMETRACKING_BRANCH = os.getenv("GAMETRACKING_BRANCH", "master")
+    GAMETRACKING_COMMITS_PER_POLL = int(os.getenv("GAMETRACKING_COMMITS_PER_POLL", "15"))
+    ENABLE_GAMETRACKING = os.getenv("ENABLE_GAMETRACKING", "true").lower() == "true"
+
     # --- 持久化 ---
     STATE_FILE = os.getenv("STATE_FILE", "watcher_state.json")

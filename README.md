@@ -8,7 +8,8 @@
 
 | 数据源 | 说明 |
 |--------|------|
-| [Steam ISteamNews API](https://partner.steamgames.com/doc/webapi/ISteamNews) | Valve 官方发布的更新公告和补丁说明 |
+| [Steam ISteamNews API](https://partner.steamgames.com/doc/webapi/ISteamNews) | Valve 官方公告 |
+| [GameTracking-CS2](https://github.com/SteamTracking/GameTracking-CS2)（GitHub） | 客户端资源同步提交，经 DeepSeek 生成中文摘要后通知 |
 
 ## 通知渠道
 
@@ -37,8 +38,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # 4. 配置环境变量
-cp .env.example .env
-# 编辑 .env 填入你的配置
+# 在项目根目录创建 .env，参考下文「配置说明」
 
 # 5. 运行
 python main.py
@@ -62,8 +62,11 @@ python main.py
 
 | 配置项 | 说明 |
 |--------|------|
-| `DEEPSEEK_API_KEY` | DeepSeek API Key，用于翻译更新日志 |
+| `DEEPSEEK_API_KEY` | DeepSeek：翻译 Steam 新闻 + GameTracking 提交摘要 |
+| `GITHUB_TOKEN` | GitHub PAT（建议 `public_repo`），避免监听仓库时 API 限流 |
 | `STEAM_API_KEY` | Steam Web API Key（可选，不配也能用） |
+| `ENABLE_GAMETRACKING` | 是否监听 GameTracking（默认 `true`） |
+| `GAMETRACKING_REPO` / `GAMETRACKING_BRANCH` | 仓库与分支（默认 `SteamTracking/GameTracking-CS2`、`master`） |
 
 ### Bark 推送（iOS）
 
@@ -128,32 +131,30 @@ WantedBy=multi-user.target
 
 ```
 cs2-update-watcher/
-├── main.py                 # 主调度器，轮询循环 + 每日心跳
-├── config.py               # 配置管理（从 .env 读取）
-├── state.py                # 状态持久化（防止重启重复通知）
-├── steam_news_watcher.py   # Steam ISteamNews API 监听
-├── formatter.py            # 格式化通知内容（文本/HTML/BBCode 转换）
-├── translator.py           # DeepSeek API 翻译（英→中）
-├── notifier.py             # 通知发送（邮件/Bark/阿里云电话）
-├── test_send_news.py       # 测试脚本：拉取最新新闻并发邮件
-├── test_steam_news.py      # 测试脚本：Steam 新闻 API 调试
-├── requirements.txt        # Python 依赖
-└── .env                    # 环境变量配置（不提交）
+├── main.py                  # 主程序：Steam 新闻 + GameTracking，轮询与心跳
+├── config.py
+├── state.py
+├── steam_news_watcher.py    # Steam ISteamNews
+├── gametracking_commit.py   # GitHub commit 拉取与 LLM 上下文
+├── gametracking_watcher.py  # GameTracking 轮询与通知
+├── gametracking_llm.py      # DeepSeek 提交摘要
+├── formatter.py / translator.py
+├── notifier.py
+├── test_commit_ai_summary.py  # 单 commit 联调（支持 --latest）
+├── requirements.txt
+└── .env
 ```
 
 ## 数据流
 
 ```
-main.py（每 60 秒轮询）
+main.py（默认每 60 秒一轮）
     │
-    ├─► steam_news_watcher.check_for_news()  → 检测新公告
+    ├─► steam_news_watcher → 新公告 → formatter + translator → 邮件 / Bark / 电话
     │
-    ├─► formatter.format_*()                  → 格式化（英文原文 + 中文翻译）
-    │       └─► translator.translate_to_chinese()  → DeepSeek 翻译
+    ├─► gametracking_watcher → 新提交且含游戏路径 → gametracking_llm → 邮件 + Bark
     │
-    ├─► notifier.notify_all()                 → 邮件 + Bark + 电话
+    ├─► state.save_state()   （last_news_gid、last_gametracking_sha 等）
     │
-    ├─► state.save_state()                    → 持久化 last_gid
-    │
-    └─► _check_heartbeat()                    → 每天 12:00 心跳邮件
+    └─► 每日 12:00 CST 心跳邮件
 ```
