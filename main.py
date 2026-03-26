@@ -5,6 +5,9 @@
   - Steam 官方 ISteamNews API（正式更新公告）
   - GitHub SteamTracking/GameTracking-CS2（客户端 dump 提交 → DeepSeek 摘要）
 
+联调（不走 state、不覆盖已记录进度）：
+  python main.py --test-notify-once
+
 通知渠道：
   - 邮件 (SMTP)
   - Bark 推送（iOS）
@@ -100,6 +103,83 @@ def poll_once(current_state: dict) -> dict:
     return current_state
 
 
+def run_test_notify_once() -> None:
+    """联调：各走一遍与 `poll_once` 相同的 Steam 通知链 + 当前 GameTracking tip 的 LLM 通知。
+
+    不读不写 `watcher_state.json`，不影响正式运行时的 last_gid / last_gametracking_sha。
+
+    Steam：拉 2 条公告并假设第 2 条已读，则第 1 条会触发快速提醒 + 翻译邮件 + Bark（与 ENABLE_* 一致）。
+    GameTracking：拉分支当前 tip，若含游戏路径则摘要并邮件 + Bark（force）。
+    """
+    from gametracking_commit import fetch_branch_commit_shas, fetch_commit
+    from gametracking_watcher import send_game_tracking_notifications_for_commit
+    from steam_news_watcher import fetch_latest_news
+
+    logger.info("=" * 60)
+    logger.info("联调 --test-notify-once（不修改 state 文件）")
+    logger.info("=" * 60)
+
+    news = fetch_latest_news(count=2)
+    if len(news) < 2:
+        logger.warning(
+            "Steam 公告不足 2 条，跳过新闻联调（需至少 2 条才能模拟「仅最新为未读」）"
+        )
+    else:
+        pretend_last_gid = news[1].gid
+        new_gid, new_news = check_steam(pretend_last_gid)
+        if not new_news:
+            logger.warning(
+                "Steam：以 GID %s 为已读时未识别到新公告，跳过新闻通知",
+                pretend_last_gid,
+            )
+        else:
+            subject_quick = f"[CS2 更新] 发现 {len(new_news)} 条新公告（快速提醒）"
+            body_quick_text = format_quick_alert_text(new_news)
+            body_quick_html = format_quick_alert_html(new_news)
+            phone_msg = format_phone_summary(news=new_news)
+            notify_all(subject_quick, body_quick_text, body_quick_html, phone_msg)
+
+            translations = _translate_news(new_news)
+            subject_full = f"[CS2 更新] {len(new_news)} 条官方公告（含翻译）"
+            body_full_text = format_news_text(new_news, translations)
+            body_full_html = format_news_html(new_news, translations)
+            send_email(subject_full, body_full_text, body_full_html)
+            logger.info(
+                "Steam 联调已发送（快速提醒 + 完整邮件），假定已读锚点 GID=%s",
+                pretend_last_gid,
+            )
+
+    if not Config.ENABLE_GAMETRACKING:
+        logger.info("GameTracking 已关闭（ENABLE_GAMETRACKING），跳过 commit 联调")
+    elif not Config.DEEPSEEK_API_KEY:
+        logger.warning("未配置 DEEPSEEK_API_KEY，跳过 GameTracking commit 联调")
+    else:
+        try:
+            tip_list = fetch_branch_commit_shas(
+                Config.GAMETRACKING_BRANCH, per_page=1
+            )
+        except Exception:
+            logger.exception("拉取 GameTracking tip 失败（检查 GITHUB_TOKEN）")
+            tip_list = []
+        if not tip_list or not tip_list[0].get("sha"):
+            logger.warning("未拿到 GameTracking tip")
+        else:
+            sha = tip_list[0]["sha"]
+            logger.info(
+                "GameTracking 联调 tip: %s %s",
+                sha[:7],
+                tip_list[0].get("message_first_line", ""),
+            )
+            try:
+                data = fetch_commit(sha)
+            except Exception:
+                logger.exception("拉取 commit 失败")
+            else:
+                send_game_tracking_notifications_for_commit(data)
+
+    logger.info("联调结束（state 文件未改动）")
+
+
 def _check_heartbeat(last_heartbeat_date: str | None) -> str | None:
     """每天中午 12:00 发送一封心跳邮件，确认程序运行正常。"""
     now = datetime.now(tz=CST)
@@ -192,4 +272,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--test-notify-once" in sys.argv:
+        run_test_notify_once()
+    else:
+        main()
