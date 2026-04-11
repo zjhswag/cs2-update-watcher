@@ -42,8 +42,10 @@ class Config:
     GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
     GAMETRACKING_REPO = os.getenv("GAMETRACKING_REPO", "SteamTracking/GameTracking-CS2")
     GAMETRACKING_BRANCH = os.getenv("GAMETRACKING_BRANCH", "master")
-    GAMETRACKING_COMMITS_PER_POLL = int(os.getenv("GAMETRACKING_COMMITS_PER_POLL", "15"))
+    GAMETRACKING_COMMITS_PER_POLL = int(os.getenv("GAMETRACKING_COMMITS_PER_POLL", "2"))
     ENABLE_GAMETRACKING = os.getenv("ENABLE_GAMETRACKING", "true").lower() == "true"
+    GAMETRACKING_MAJOR_HIGH_MIN = int(os.getenv("GAMETRACKING_MAJOR_HIGH_MIN", "3"))
+    GAMETRACKING_MAJOR_FILES_MIN = int(os.getenv("GAMETRACKING_MAJOR_FILES_MIN", "15"))
 
     # --- 持久化 ---
     STATE_FILE = os.getenv("STATE_FILE", "watcher_state.json")
