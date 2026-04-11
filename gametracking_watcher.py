@@ -78,8 +78,11 @@ def send_game_tracking_notifications_for_commit(data: dict) -> bool:
     return True
 
 
+_SEEN_KEY = "seen_gametracking_shas"
+
+
 def poll_game_tracking(state: dict) -> dict:
-    """在 state 上更新 last_gametracking_sha；对新增且含 CS2 内容的提交发邮件与 Bark。"""
+    """在 state 上更新已见 SHA 集合；对新增且含 CS2 内容的提交发邮件与 Bark。"""
     if not Config.ENABLE_GAMETRACKING:
         return state
 
@@ -104,33 +107,53 @@ def poll_game_tracking(state: dict) -> dict:
         return state
 
     tip_sha = recent[0]["sha"]
-    last = state.get(_STATE_KEY)
+    current_shas = {item.get("sha") for item in recent if item.get("sha")}
+    seen_list = state.get(_SEEN_KEY)
+    seen_shas = set(seen_list) if seen_list is not None else None
 
-    if last is None:
-        logger.info(
-            "首次 GameTracking 监听，记录当前 tip=%s（不触发历史通知）",
-            tip_sha[:7],
-        )
+    # 兼容旧状态：如果存在旧的 _STATE_KEY 但没有 _SEEN_KEY，做一次迁移
+    if seen_shas is None and state.get(_STATE_KEY):
+        old_last = state[_STATE_KEY]
+        logger.info("从旧格式迁移 GameTracking 状态，旧 tip=%s", old_last[:7])
+        seen_shas = set()
+        for item in recent:
+            seen_shas.add(item.get("sha", ""))
+            if item.get("sha") == old_last:
+                break
+        state[_SEEN_KEY] = list(seen_shas)
         state[_STATE_KEY] = tip_sha
         return state
 
-    if tip_sha == last:
+    if seen_shas is None:
+        logger.info(
+            "首次 GameTracking 监听，记录当前 %d 个 SHA（不触发历史通知）",
+            len(current_shas),
+        )
+        state[_SEEN_KEY] = list(current_shas)
+        state[_STATE_KEY] = tip_sha
         return state
 
-    new_items: list[dict] = []
-    for item in recent:
-        sha = item.get("sha") or ""
-        if sha == last:
-            break
-        new_items.append(item)
+    new_items = [item for item in recent if item.get("sha") and item["sha"] not in seen_shas]
+
+    if not new_items:
+        merged = seen_shas | current_shas
+        state[_SEEN_KEY] = list(merged)
+        state[_STATE_KEY] = tip_sha
+        return state
+
     new_items.reverse()
 
     logger.info(
-        "GameTracking 发现 %d 条新提交（tip %s → %s）",
+        "GameTracking 发现 %d 条新提交（tip → %s）",
         len(new_items),
-        last[:7],
         tip_sha[:7],
     )
+
+    # 先更新状态，防止通知失败导致重复
+    merged = seen_shas | current_shas
+    # 只保留最近 100 个 SHA，防止无限增长
+    state[_SEEN_KEY] = list(merged)[-100:]
+    state[_STATE_KEY] = tip_sha
 
     for item in new_items:
         sha = item.get("sha") or ""
@@ -144,5 +167,4 @@ def poll_game_tracking(state: dict) -> dict:
 
         send_game_tracking_notifications_for_commit(data)
 
-    state[_STATE_KEY] = tip_sha
     return state

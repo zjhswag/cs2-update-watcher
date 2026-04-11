@@ -60,30 +60,40 @@ def fetch_latest_news(count: int = 5) -> list[SteamNewsItem]:
     ]
 
 
-def check_for_news(last_gid: str | None) -> tuple[str | None, list[SteamNewsItem]]:
-    """主入口：检查是否有新的 Steam 新闻。
+def check_for_news(
+    seen_gids: set[str] | None,
+) -> tuple[set[str], list[SteamNewsItem]]:
+    """检查是否有新的 Steam 新闻。
 
-    返回 (最新 GID, 新新闻列表)。
-    如果没有更新，返回 (None, [])。
+    使用已见 GID 集合（而非单个 GID）来判断新旧，
+    避免 API 返回顺序不稳定时 GID 交替导致重复通知。
+
+    返回 (当前页面所有 GID 的集合, 新新闻列表)。
+    若无数据返回 (set(), [])。
     """
     news = fetch_latest_news()
     if not news:
-        return None, []
+        return set(), []
 
-    if last_gid is None:
-        latest = news[0]
-        logger.info("首次运行，记录最新新闻 GID: %s", latest.gid)
-        return latest.gid, []
+    current_gids = {item.gid for item in news}
 
-    new_items: list[SteamNewsItem] = []
-    for item in news:
-        if item.gid == last_gid:
-            break
-        new_items.append(item)
+    if seen_gids is None:
+        logger.info(
+            "首次运行，记录当前 %d 条新闻 GID（不触发通知）",
+            len(current_gids),
+        )
+        return current_gids, []
+
+    new_items = [item for item in news if item.gid not in seen_gids]
 
     if not new_items:
-        return None, []
+        return set(), []
 
-    latest_gid = new_items[0].gid
-    logger.info("发现 %d 条新的 Steam 新闻, 最新: %s", len(new_items), new_items[0].title)
-    return latest_gid, new_items
+    new_items.sort(key=lambda x: x.date)
+
+    logger.info(
+        "发现 %d 条新的 Steam 新闻, 最新: %s",
+        len(new_items),
+        new_items[-1].title,
+    )
+    return current_gids, new_items

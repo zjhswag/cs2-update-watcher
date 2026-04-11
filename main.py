@@ -20,6 +20,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -71,33 +72,69 @@ def _clear_console() -> None:
         sys.stdout.flush()
 
 
+def _send_translated_email_async(new_news: list) -> None:
+    """在后台线程中翻译并发送完整版邮件，不阻塞轮询主循环。"""
+    try:
+        translations = _translate_news(new_news)
+        subject_full = f"[CS2 更新] {len(new_news)} 条官方公告（含翻译）"
+        body_full_text = format_news_text(new_news, translations)
+        body_full_html = format_news_html(new_news, translations)
+        send_email(subject_full, body_full_text, body_full_html)
+    except Exception:
+        logger.exception("后台翻译/发送完整邮件失败（不影响主流程）")
+
+
+def _migrate_state(current_state: dict) -> None:
+    """将旧格式 last_news_gid (单个 GID) 迁移到 seen_news_gids (集合)。"""
+    if "seen_news_gids" not in current_state and "last_news_gid" in current_state:
+        old_gid = current_state.pop("last_news_gid")
+        current_state["seen_news_gids"] = [old_gid] if old_gid else []
+        logger.info("状态迁移: last_news_gid=%s → seen_news_gids", old_gid)
+
+
 def poll_once(current_state: dict) -> dict:
-    """执行一次完整检查：Steam 新闻 + GameTracking GitHub（共用 POLL_INTERVAL_SECONDS，默认各约每分钟一次）。"""
-    last_gid = current_state.get("last_news_gid")
+    """执行一次完整检查：Steam 新闻 + GameTracking GitHub。"""
+    _migrate_state(current_state)
 
-    new_gid, new_news = check_steam(last_gid)
+    seen_gids_list = current_state.get("seen_news_gids")
+    seen_gids = set(seen_gids_list) if seen_gids_list is not None else None
 
-    if new_gid and last_gid is None:
-        logger.info("首次运行，记录当前最新公告 GID: %s（不触发通知）", new_gid)
-        current_state["last_news_gid"] = new_gid
+    current_gids, new_news = check_steam(seen_gids)
+
+    if current_gids and seen_gids is None:
+        logger.info(
+            "首次运行，记录当前 %d 条公告 GID（不触发通知）",
+            len(current_gids),
+        )
+        current_state["seen_news_gids"] = list(current_gids)
     elif new_news:
-        # 1. 先发快速提醒（无翻译），第一时间通知
+        # 先更新状态，确保即使后续通知失败也不会重复
+        merged = (seen_gids or set()) | current_gids
+        current_state["seen_news_gids"] = list(merged)
+        save_state(current_state)
+
+        # 1. 快速提醒（无翻译），第一时间通知
         subject_quick = f"[CS2 更新] 发现 {len(new_news)} 条新公告（快速提醒）"
         body_quick_text = format_quick_alert_text(new_news)
         body_quick_html = format_quick_alert_html(new_news)
         phone_msg = format_phone_summary(news=new_news)
         notify_all(subject_quick, body_quick_text, body_quick_html, phone_msg)
 
-        # 2. 翻译后发送带翻译的完整版邮件
-        translations = _translate_news(new_news)
-        subject_full = f"[CS2 更新] {len(new_news)} 条官方公告（含翻译）"
-        body_full_text = format_news_text(new_news, translations)
-        body_full_html = format_news_html(new_news, translations)
-        send_email(subject_full, body_full_text, body_full_html)
+        # 2. 翻译+完整邮件放到后台线程，不阻塞下一轮轮询
+        t = threading.Thread(
+            target=_send_translated_email_async,
+            args=(new_news,),
+            daemon=True,
+        )
+        t.start()
+    elif current_gids:
+        merged = (seen_gids or set()) | current_gids
+        current_state["seen_news_gids"] = list(merged)
 
-        current_state["last_news_gid"] = new_gid
+    # 防止已见集合无限增长：只保留最近 50 个 GID
+    if len(current_state.get("seen_news_gids", [])) > 50:
+        current_state["seen_news_gids"] = current_state["seen_news_gids"][-50:]
 
-    # GameTracking：与新闻同一轮询周期内顺序执行（每轮间隔见 POLL_INTERVAL_SECONDS）
     current_state = poll_game_tracking(current_state)
 
     return current_state
@@ -125,12 +162,12 @@ def run_test_notify_once() -> None:
             "Steam 公告不足 2 条，跳过新闻联调（需至少 2 条才能模拟「仅最新为未读」）"
         )
     else:
-        pretend_last_gid = news[1].gid
-        new_gid, new_news = check_steam(pretend_last_gid)
+        pretend_seen = {news[1].gid}
+        _current_gids, new_news = check_steam(pretend_seen)
         if not new_news:
             logger.warning(
                 "Steam：以 GID %s 为已读时未识别到新公告，跳过新闻通知",
-                pretend_last_gid,
+                news[1].gid,
             )
         else:
             subject_quick = f"[CS2 更新] 发现 {len(new_news)} 条新公告（快速提醒）"
@@ -145,8 +182,8 @@ def run_test_notify_once() -> None:
             body_full_html = format_news_html(new_news, translations)
             send_email(subject_full, body_full_text, body_full_html)
             logger.info(
-                "Steam 联调已发送（快速提醒 + 完整邮件），假定已读锚点 GID=%s",
-                pretend_last_gid,
+                "Steam 联调已发送（快速提醒 + 完整邮件），假定已读 GID=%s",
+                news[1].gid,
             )
 
     if not Config.ENABLE_GAMETRACKING:
@@ -246,13 +283,14 @@ def main():
         except Exception:
             logger.exception("检查周期异常，将在下次重试")
 
-        gid = current_state.get("last_news_gid", "无")
+        seen = current_state.get("seen_news_gids", [])
+        gid_summary = f"{len(seen)} 条已知" if seen else "无"
         gsha = current_state.get("last_gametracking_sha")
         gtip = (gsha[:7] + "…") if isinstance(gsha, str) and len(gsha) >= 7 else (gsha or "未记录")
         logger.info(
-            "第 %d 次轮询完成 | Steam 公告 GID: %s | GameTracking tip: %s",
+            "第 %d 次轮询完成 | Steam 公告: %s | GameTracking tip: %s",
             poll_count,
-            gid,
+            gid_summary,
             gtip,
         )
 
